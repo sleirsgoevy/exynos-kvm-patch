@@ -1,0 +1,298 @@
+diff --git a/arch/arm/kvm/arm.c b/arch/arm/kvm/arm.c
+index 9929cdd8..d290f5ba 100644
+--- a/arch/arm/kvm/arm.c
++++ b/arch/arm/kvm/arm.c
+@@ -804,6 +804,8 @@ long kvm_arch_vm_ioctl(struct file *filp,
+ 	}
+ }
+ 
++static unsigned long hyp_stack_base;
++void vmm_init_kvm(phys_addr_t code, phys_addr_t boot_pgd_ptr, phys_addr_t pgd_ptr, unsigned long hyp_stack_ptr, unsigned long vector_ptr);
+ static void cpu_init_hyp_mode(void *dummy)
+ {
+ 	phys_addr_t boot_pgd_ptr;
+@@ -813,15 +815,15 @@ static void cpu_init_hyp_mode(void *dummy)
+ 	unsigned long vector_ptr;
+ 
+ 	/* Switch from the HYP stub to our own HYP init vector */
+-	__hyp_set_vectors(kvm_get_idmap_vector());
++	//__hyp_set_vectors(kvm_get_idmap_vector());
+ 
+ 	boot_pgd_ptr = kvm_mmu_get_boot_httbr();
+ 	pgd_ptr = kvm_mmu_get_httbr();
+-	stack_page = __this_cpu_read(kvm_arm_hyp_stack_page);
++	stack_page = hyp_stack_base; //__this_cpu_read(kvm_arm_hyp_stack_page);
+ 	hyp_stack_ptr = stack_page + PAGE_SIZE;
+ 	vector_ptr = (unsigned long)__kvm_hyp_vector;
+ 
+-	__cpu_init_hyp_mode(boot_pgd_ptr, pgd_ptr, hyp_stack_ptr, vector_ptr);
++    vmm_init_kvm(kvm_get_idmap_vector(), boot_pgd_ptr, pgd_ptr, hyp_stack_ptr, vector_ptr);
+ }
+ 
+ static int hyp_init_cpu_notify(struct notifier_block *self,
+@@ -870,13 +872,10 @@ static inline void hyp_cpu_pm_init(void)
+ }
+ #endif
+ 
+-/**
+- * Inits Hyp-mode on all online CPUs
+- */
+-static int init_hyp_mode(void)
++static int preinit_status = -EINVAL;
++void preinit_hyp_mode(void)
+ {
+-	int cpu;
+-	int err = 0;
++	int err;
+ 
+ 	/*
+ 	 * Allocate Hyp PGD and setup Hyp identity mapping
+@@ -886,14 +885,70 @@ static int init_hyp_mode(void)
+ 		goto out_err;
+ 
+ 	/*
+-	 * It is probably enough to obtain the default on one
+-	 * CPU. It's unlikely to be different on the others.
++	 * Allocate stack pages for Hypervisor-mode
+ 	 */
+-	hyp_default_vectors = __hyp_get_vectors();
++	hyp_stack_base = __get_free_pages(GFP_KERNEL, 3);
++	if (!hyp_stack_base) {
++		err = -ENOMEM;
++		goto out_err;
++	}
+ 
+ 	/*
+-	 * Allocate stack pages for Hypervisor-mode
++	 * Map the Hyp-code called directly from the host
+ 	 */
++	err = create_hyp_mappings(__kvm_hyp_code_start, __kvm_hyp_code_end);
++	if (err) {
++		kvm_err("Cannot map world-switch code\n");
++		goto out_free_mappings;
++	}
++
++	/*
++	 * Map the Hyp stack
++	 */
++	err = create_hyp_mappings((void*)hyp_stack_base, (void*)(hyp_stack_base+8*PAGE_SIZE));
++	if (err) {
++		kvm_err("Cannot map Hyp stack\n");
++		goto out_free_mappings;
++	}
++
++	cpu_init_hyp_mode(NULL);
++	preinit_status = 0;
++	kvm_info("Hyp mode pre-initialized successfully\n");
++	return;
++out_free_mappings:
++	free_hyp_pgds();
++	//TODO: free stack
++out_err:
++	preinit_status = err;
++	return;
++}
++
++/**
++ * Inits Hyp-mode on all online CPUs
++ */
++static int init_hyp_mode(void)
++{
++	int cpu;
++	int err = 0;
++
++	/*
++	 * It is probably enough to obtain the default on one
++	 * CPU. It's unlikely to be different on the others.
++	 */
++	hyp_default_vectors = 0xdeadbeefdeadbeef; //__hyp_get_vectors();
++
++	if (preinit_status != 0) {
++		kvm_err("Hyp mode preinit failed, see above");
++		err = preinit_status;
++		goto out_err;
++	}
++		
++
++#if 0
++	if (!stack_base) {
++		err = -ENOMEM;
++		goto out_free_stack_base;
++	}
+ 	for_each_possible_cpu(cpu) {
+ 		unsigned long stack_page;
+ 
+@@ -906,15 +961,6 @@ static int init_hyp_mode(void)
+ 		per_cpu(kvm_arm_hyp_stack_page, cpu) = stack_page;
+ 	}
+ 
+-	/*
+-	 * Map the Hyp-code called directly from the host
+-	 */
+-	err = create_hyp_mappings(__kvm_hyp_code_start, __kvm_hyp_code_end);
+-	if (err) {
+-		kvm_err("Cannot map world-switch code\n");
+-		goto out_free_mappings;
+-	}
+-
+ 	/*
+ 	 * Map the Hyp stack pages
+ 	 */
+@@ -927,6 +973,7 @@ static int init_hyp_mode(void)
+ 			goto out_free_mappings;
+ 		}
+ 	}
++#endif
+ 
+ 	/*
+ 	 * Map the host CPU structures
+@@ -953,7 +1000,7 @@ static int init_hyp_mode(void)
+ 	/*
+ 	 * Execute the init code on each CPU.
+ 	 */
+-	on_each_cpu(cpu_init_hyp_mode, NULL, 1);
++	//on_each_cpu(cpu_init_hyp_mode, NULL, 1);
+ 
+ 	/*
+ 	 * Init HYP view of VGIC
+@@ -986,9 +1033,12 @@ out_free_context:
+ 	free_percpu(kvm_host_cpu_state);
+ out_free_mappings:
+ 	free_hyp_pgds();
+-out_free_stack_pages:
++out_free_stack_base:
++#if 0
+ 	for_each_possible_cpu(cpu)
+ 		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
++#endif
++	//__free_pages(stack_base, 3);
+ out_err:
+ 	kvm_err("error initializing Hyp mode: %d\n", err);
+ 	return err;
+diff --git a/arch/arm64/include/asm/virt.h b/arch/arm64/include/asm/virt.h
+index 7a5df525..cef29bd1 100644
+--- a/arch/arm64/include/asm/virt.h
++++ b/arch/arm64/include/asm/virt.h
+@@ -40,8 +40,9 @@ phys_addr_t __hyp_get_vectors(void);
+ /* Reports the availability of HYP mode */
+ static inline bool is_hyp_mode_available(void)
+ {
+-	return (__boot_cpu_mode[0] == BOOT_CPU_MODE_EL2 &&
+-		__boot_cpu_mode[1] == BOOT_CPU_MODE_EL2);
++	/*return (__boot_cpu_mode[0] == BOOT_CPU_MODE_EL2 &&
++		__boot_cpu_mode[1] == BOOT_CPU_MODE_EL2);*/
++    return 1;
+ }
+ 
+ /* Check if the bootloader has booted CPUs in different modes */
+diff --git a/arch/arm64/kvm/hyp-init.S b/arch/arm64/kvm/hyp-init.S
+index c3191168..b14649f4 100644
+--- a/arch/arm64/kvm/hyp-init.S
++++ b/arch/arm64/kvm/hyp-init.S
+@@ -27,6 +27,7 @@
+ 	.align	11
+ 
+ ENTRY(__kvm_hyp_init)
++#if 0
+ 	ventry	__invalid		// Synchronous EL2t
+ 	ventry	__invalid		// IRQ EL2t
+ 	ventry	__invalid		// FIQ EL2t
+@@ -49,6 +50,13 @@ ENTRY(__kvm_hyp_init)
+ 
+ __invalid:
+ 	b	.
++#endif
++
++exynos_entry:
++ldr x3, [x0, #24]
++ldr x2, [x0, #16]
++ldr x1, [x0, #8]
++ldr x0, [x0]
+ 
+ 	/*
+ 	 * x0: HYP boot pgd
+@@ -111,8 +119,14 @@ target: /* We're now in the trampoline code, switch page tables */
+ 	kern_hyp_va	x3
+ 	msr	vbar_el2, x3
+ 
++
++    mov x0, #0
++    msr vttbr_el2, x0
++
+ 	/* Hello, World! */
+-	eret
++    ldr x0, =0xc2000401
++    mov x1, 0
++    smc #0
+ ENDPROC(__kvm_hyp_init)
+ 
+ 	.ltorg
+diff --git a/init/Makefile b/init/Makefile
+index a6d79459..bd442b10 100644
+--- a/init/Makefile
++++ b/init/Makefile
+@@ -12,6 +12,10 @@ obj-y += _vmm.o vmm.o
+ obj-y += ld.o
+ endif
+ 
++ifeq ($(CONFIG_KVM), y)
++obj-y += _vmm.o vmm-kvm.o
++endif
++
+ ifneq ($(CONFIG_ARCH_INIT_TASK),y)
+ obj-y                          += init_task.o
+ endif
+diff --git a/init/main.c b/init/main.c
+index 63b3eafd..e11c96b2 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -631,6 +631,9 @@ asmlinkage __visible void __init start_kernel(void)
+ 			   set_init_arg);
+ 
+ #ifdef CONFIG_TIMA_RKP
++#ifdef CONFIG_KVM
++#error "RKP and KVM cannot coexist!"
++#endif
+ #ifdef CONFIG_KNOX_KAP
+ 	if (boot_mode_security)
+ 		vmm_init();
+@@ -651,6 +654,10 @@ asmlinkage __visible void __init start_kernel(void)
+ 	sort_main_extable();
+ 	trap_init();
+ 	mm_init();
++#ifdef CONFIG_KVM
++    void preinit_hyp_mode(void);
++    preinit_hyp_mode();
++#endif
+ 
+ 	/*
+ 	 * Set up the scheduler prior starting any interrupts (such as the
+diff --git a/init/vmm-kvm.c b/init/vmm-kvm.c
+new file mode 100644
+index 00000000..c9cc66cd
+--- /dev/null
++++ b/init/vmm-kvm.c
+@@ -0,0 +1,23 @@
++#include <linux/types.h>
++#include <asm/memory.h>
++
++#define VMM_32BIT_SMC_CALL_MAGIC 0x82000400
++#define VMM_64BIT_SMC_CALL_MAGIC 0xC2000400
++
++#define VMM_STACK_OFFSET 4096
++
++#define VMM_MODE_AARCH32 0
++#define VMM_MODE_AARCH64 1
++
++int _vmm_goto_EL2(int magic, void *label, int offset, int mode, void *base, int size);
++
++static unsigned long hyp_params[4];
++void vmm_init_kvm(phys_addr_t code, phys_addr_t boot_pgd_ptr, phys_addr_t pgd_ptr, unsigned long hyp_stack_ptr, unsigned long vector_ptr)
++{
++    hyp_params[0] = boot_pgd_ptr;
++    hyp_params[1] = pgd_ptr;
++    hyp_params[2] = hyp_stack_ptr;
++    hyp_params[3] = vector_ptr;
++    __flush_dcache_area(hyp_params, sizeof(hyp_params));
++    _vmm_goto_EL2(VMM_64BIT_SMC_CALL_MAGIC, (void*)code, VMM_STACK_OFFSET, VMM_MODE_AARCH64, (void*)virt_to_phys(hyp_params), 0);
++}
