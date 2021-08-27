@@ -7,7 +7,7 @@ This repository contains a patch for Samsung's official kernel sources that prov
 1. Download official kernel sources from [opensource.samsung.com](https://opensource.samsung.com/uploadList?menuItem=mobile&classification1=mobile_phone).
 2. Apply the patch
 3. Copy `/proc/config.gz` from your device, and unzip to `.config`
-4. Install and configure a cross-compiler: for aarch64 CPU you can do `git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9` then `git checkout ndk-release-r19` and add `bin` directory in the repo to `$PATH`.
+4. Install and configure a cross-compiler: for aarch64 CPU you can do `git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9` then `git checkout ndk-release-r19` and `export CROSS_COMPILE=aarch64-linux-android-4.9/bin/aarch64-linux-android-`.
 5. In `make menuconfig` disable everything about TIMA (?) and RKP under "Boot Options" (they are incompatible with KVM), and enable KVM under "Virtualization".
 6. Build and flash your shiny KVM-enabled kernel!
 
