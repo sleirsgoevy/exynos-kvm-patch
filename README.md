@@ -15,7 +15,7 @@ This repository contains a patch for Samsung's official kernel sources that prov
 
 * Older versions of Samsung's TrustZone do not play well with this. They probably implemented big.LITTLE scheduling outside of the kernel, which breaks KVM's assumption that VM's do not suddenly jump from one core to another. This seems to have been fixed in the firmware update based on Android 10, open an issue if this persists. The symptom is that the phone **sometimes** instantly reboots when a VM is launched.
 * The register `cntfrq_el0`, which the bootloader should have configured, is set to zero. ARM documentation states that is's only writeable from the highest privilege level (i.e.TrustZone), but readable from any privilege level (impossible to trap accesses), and guest OSes will expect it to hold the architected timer frequency (26.0 MHz). There also does not seem to be an `smc` call to set this value. This means that guest OSes will need to be patched until a TrustZone exploit is found to initialize the register properly.
-* Timer handling is somehow broken. Linux boots (with a custom DTB that specifies timer frequency explicitly), but OVMF hangs on the first sleep due to interrupts not arriving.
+* Timer handling is somehow broken. Linux boots (with a custom DTB that specifies timer frequency explicitly), but OVMF hangs on the first sleep due to interrupts not arriving. UPD: KVM bug, [fixed upstream](https://github.com/torvalds/linux/commit/f120cd6533d21075ab103ae6c225b1697853660d).
 
 ## Technical details
 
