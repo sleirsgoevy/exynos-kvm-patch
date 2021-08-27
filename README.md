@@ -50,3 +50,6 @@ KVM/ARM bootstrap process with this patch:
 
 ## Prebuilt kernel by @sleirsgoevy
 The prebuilt kernel include Magisk patch and KVM. You can download it [here](https://mega.nz/file/d8lGhY7b#NKQZEL3G6bT7SetrHLh4rNgmgg0L5EXJ0Lir_QjAebA)
+
+## XDA thread
+https://forum.xda-developers.com/t/is-samsung-galaxy-a6-exynos-7870-suppor-kvm.4295775
