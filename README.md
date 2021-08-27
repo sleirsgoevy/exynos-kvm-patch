@@ -7,7 +7,7 @@ This repository contains a patch for Samsung's official kernel sources that prov
 1. Download official kernel sources from [opensource.samsung.com](https://opensource.samsung.com/uploadList?menuItem=mobile&classification1=mobile_phone).
 2. Apply the patch
 3. Copy `/proc/config.gz` from your device, and unzip to `.config`
-4. Install and configure a cross-compiler (not documented here).
+4. Install and configure a cross-compiler: for aarch64 CPU you can do `git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9` then `git checkout ndk-release-r19` and add `bin` directory in the repo to `$PATH`.
 5. In `make menuconfig` disable everything about TIMA (?) and RKP under "Boot Options" (they are incompatible with KVM), and enable KVM under "Virtualization".
 6. Build and flash your shiny KVM-enabled kernel!
 
@@ -47,3 +47,6 @@ KVM/ARM bootstrap process with this patch:
 **What did not work:**
 * In the early bootup code, use the backdoor to enter EL2, and continue booting from there, imitating normal EL2 boot. This probably fails later when secondary cores boot up, causing a sanity check in `arch/arm64/include/asm/virt.h` to fail (boot CPU booted in EL2, others in EL1).
 * Use the backdoor early to bootstrap a valid-looking HYP stub, then let KVM boot normally. Does not work due to the custom `vbar_el2` handling, see above.
+
+## Prebuilt kernel by @sleirsgoevy
+The prebuilt kernel include Magisk patch and KVM. You can download it [here](https://mega.nz/file/d8lGhY7b#NKQZEL3G6bT7SetrHLh4rNgmgg0L5EXJ0Lir_QjAebA)
