@@ -1,0 +1,16 @@
+diff --git a/ArmPkg/Library/ArmGenericTimerVirtCounterLib/ArmGenericTimerVirtCounterLib.c b/ArmPkg/Library/ArmGenericTimerVirtCounterLib/ArmGenericTimerVirtCounterLib.c
+index 74c85dd756..7bcd16d69c 100644
+--- a/ArmPkg/Library/ArmGenericTimerVirtCounterLib/ArmGenericTimerVirtCounterLib.c
++++ b/ArmPkg/Library/ArmGenericTimerVirtCounterLib/ArmGenericTimerVirtCounterLib.c
+@@ -59,7 +59,10 @@ ArmGenericTimerGetTimerFreq (
+   VOID
+   )
+ {
+-  return ArmReadCntFrq ();
++  UINTN ans = ArmReadCntFrq ();
++  if(!ans)
++    ans = 26000000;
++  return ans;
+ }
+ 
+ UINTN

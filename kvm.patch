@@ -1,5 +1,5 @@
 diff --git a/arch/arm/kvm/arm.c b/arch/arm/kvm/arm.c
-index 9929cdd8..d290f5ba 100644
+index 9929cdd8..935d0eca 100644
 --- a/arch/arm/kvm/arm.c
 +++ b/arch/arm/kvm/arm.c
 @@ -804,6 +804,8 @@ long kvm_arch_vm_ioctl(struct file *filp,
@@ -26,7 +26,7 @@ index 9929cdd8..d290f5ba 100644
  	vector_ptr = (unsigned long)__kvm_hyp_vector;
  
 -	__cpu_init_hyp_mode(boot_pgd_ptr, pgd_ptr, hyp_stack_ptr, vector_ptr);
-+    vmm_init_kvm(kvm_get_idmap_vector(), boot_pgd_ptr, pgd_ptr, hyp_stack_ptr, vector_ptr);
++	vmm_init_kvm(kvm_get_idmap_vector(), boot_pgd_ptr, pgd_ptr, hyp_stack_ptr, vector_ptr);
  }
  
  static int hyp_init_cpu_notify(struct notifier_block *self,
@@ -47,7 +47,7 @@ index 9929cdd8..d290f5ba 100644
  
  	/*
  	 * Allocate Hyp PGD and setup Hyp identity mapping
-@@ -886,14 +885,70 @@ static int init_hyp_mode(void)
+@@ -886,14 +885,69 @@ static int init_hyp_mode(void)
  		goto out_err;
  
  	/*
@@ -112,7 +112,6 @@ index 9929cdd8..d290f5ba 100644
 +		err = preinit_status;
 +		goto out_err;
 +	}
-+		
 +
 +#if 0
 +	if (!stack_base) {
@@ -122,7 +121,7 @@ index 9929cdd8..d290f5ba 100644
  	for_each_possible_cpu(cpu) {
  		unsigned long stack_page;
  
-@@ -906,15 +961,6 @@ static int init_hyp_mode(void)
+@@ -906,15 +960,6 @@ static int init_hyp_mode(void)
  		per_cpu(kvm_arm_hyp_stack_page, cpu) = stack_page;
  	}
  
@@ -138,7 +137,7 @@ index 9929cdd8..d290f5ba 100644
  	/*
  	 * Map the Hyp stack pages
  	 */
-@@ -927,6 +973,7 @@ static int init_hyp_mode(void)
+@@ -927,6 +972,7 @@ static int init_hyp_mode(void)
  			goto out_free_mappings;
  		}
  	}
@@ -146,7 +145,7 @@ index 9929cdd8..d290f5ba 100644
  
  	/*
  	 * Map the host CPU structures
-@@ -953,7 +1000,7 @@ static int init_hyp_mode(void)
+@@ -953,7 +999,7 @@ static int init_hyp_mode(void)
  	/*
  	 * Execute the init code on each CPU.
  	 */
@@ -155,7 +154,7 @@ index 9929cdd8..d290f5ba 100644
  
  	/*
  	 * Init HYP view of VGIC
-@@ -986,9 +1033,12 @@ out_free_context:
+@@ -986,9 +1032,12 @@ out_free_context:
  	free_percpu(kvm_host_cpu_state);
  out_free_mappings:
  	free_hyp_pgds();
@@ -170,7 +169,7 @@ index 9929cdd8..d290f5ba 100644
  	kvm_err("error initializing Hyp mode: %d\n", err);
  	return err;
 diff --git a/arch/arm64/include/asm/virt.h b/arch/arm64/include/asm/virt.h
-index 7a5df525..cef29bd1 100644
+index 7a5df525..86f7d785 100644
 --- a/arch/arm64/include/asm/virt.h
 +++ b/arch/arm64/include/asm/virt.h
 @@ -40,8 +40,9 @@ phys_addr_t __hyp_get_vectors(void);
@@ -181,7 +180,7 @@ index 7a5df525..cef29bd1 100644
 -		__boot_cpu_mode[1] == BOOT_CPU_MODE_EL2);
 +	/*return (__boot_cpu_mode[0] == BOOT_CPU_MODE_EL2 &&
 +		__boot_cpu_mode[1] == BOOT_CPU_MODE_EL2);*/
-+    return 1;
++	return 1;
  }
  
  /* Check if the bootloader has booted CPUs in different modes */
@@ -227,6 +226,21 @@ index c3191168..b14649f4 100644
  ENDPROC(__kvm_hyp_init)
  
  	.ltorg
+diff --git a/arch/arm64/kvm/sys_regs.c b/arch/arm64/kvm/sys_regs.c
+index f4001cb1..cb3056ec 100644
+--- a/arch/arm64/kvm/sys_regs.c
++++ b/arch/arm64/kvm/sys_regs.c
+@@ -436,6 +436,10 @@ static const struct sys_reg_desc sys_reg_descs[] = {
+ 	{ Op0(0b11), Op1(0b011), CRn(0b1101), CRm(0b0000), Op2(0b011),
+ 	  NULL, reset_unknown, TPIDRRO_EL0 },
+ 
++	/* PMCCFILTR_EL0 */
++	{ Op0(0b11), Op1(0b011), CRn(0b1110), CRm(0b1111), Op2(0b111),
++	  trap_raz_wi },
++
+ 	/* DACR32_EL2 */
+ 	{ Op0(0b11), Op1(0b100), CRn(0b0011), CRm(0b0000), Op2(0b000),
+ 	  NULL, reset_unknown, DACR32_EL2 },
 diff --git a/init/Makefile b/init/Makefile
 index a6d79459..bd442b10 100644
 --- a/init/Makefile
@@ -296,3 +310,28 @@ index 00000000..c9cc66cd
 +    __flush_dcache_area(hyp_params, sizeof(hyp_params));
 +    _vmm_goto_EL2(VMM_64BIT_SMC_CALL_MAGIC, (void*)code, VMM_STACK_OFFSET, VMM_MODE_AARCH64, (void*)virt_to_phys(hyp_params), 0);
 +}
+diff --git a/virt/kvm/arm/arch_timer.c b/virt/kvm/arm/arch_timer.c
+index 1c0772b3..6a30ff12 100644
+--- a/virt/kvm/arm/arch_timer.c
++++ b/virt/kvm/arm/arch_timer.c
+@@ -64,7 +64,7 @@ static void kvm_timer_inject_irq(struct kvm_vcpu *vcpu)
+ 	int ret;
+ 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
+ 
+-	timer->cntv_ctl |= ARCH_TIMER_CTRL_IT_MASK;
++	//timer->cntv_ctl |= ARCH_TIMER_CTRL_IT_MASK;
+ 	ret = kvm_vgic_inject_irq(vcpu->kvm, vcpu->vcpu_id,
+ 				  timer->irq->irq,
+ 				  timer->irq->level);
+@@ -149,8 +149,11 @@ void kvm_timer_sync_hwstate(struct kvm_vcpu *vcpu)
+ 		 * looking. Inject the interrupt and carry on.
+ 		 */
+ 		kvm_timer_inject_irq(vcpu);
++		disable_percpu_irq(host_vtimer_irq);
+ 		return;
+ 	}
++	else
++		enable_percpu_irq(host_vtimer_irq, 0);
+ 
+ 	ns = cyclecounter_cyc2ns(timecounter->cc, cval - now);
+ 	timer_arm(timer, ns);
