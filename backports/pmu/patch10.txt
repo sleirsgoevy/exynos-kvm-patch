@@ -1,0 +1,62 @@
+diff --git a/arch/arm64/kvm/reset.c b/arch/arm64/kvm/reset.c
+index f34745cb3d236f..dfbce781d284d6 100644
+--- a/arch/arm64/kvm/reset.c
++++ b/arch/arm64/kvm/reset.c
+@@ -120,6 +120,9 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
+ 	/* Reset system registers */
+ 	kvm_reset_sys_regs(vcpu);
+ 
++	/* Reset PMU */
++	kvm_pmu_vcpu_reset(vcpu);
++
+ 	/* Reset timer */
+ 	return kvm_timer_vcpu_reset(vcpu, cpu_vtimer_irq);
+ }
+diff --git a/include/kvm/arm_pmu.h b/include/kvm/arm_pmu.h
+index 9c184edb8e07e5..b4993eb76aa100 100644
+--- a/include/kvm/arm_pmu.h
++++ b/include/kvm/arm_pmu.h
+@@ -42,6 +42,7 @@ struct kvm_pmu {
+ u64 kvm_pmu_get_counter_value(struct kvm_vcpu *vcpu, u64 select_idx);
+ void kvm_pmu_set_counter_value(struct kvm_vcpu *vcpu, u64 select_idx, u64 val);
+ u64 kvm_pmu_valid_counter_mask(struct kvm_vcpu *vcpu);
++void kvm_pmu_vcpu_reset(struct kvm_vcpu *vcpu);
+ void kvm_pmu_disable_counter(struct kvm_vcpu *vcpu, u64 val);
+ void kvm_pmu_enable_counter(struct kvm_vcpu *vcpu, u64 val);
+ void kvm_pmu_overflow_set(struct kvm_vcpu *vcpu, u64 val);
+@@ -67,6 +68,7 @@ static inline u64 kvm_pmu_valid_counter_mask(struct kvm_vcpu *vcpu)
+ {
+ 	return 0;
+ }
++static inline void kvm_pmu_vcpu_reset(struct kvm_vcpu *vcpu) {}
+ static inline void kvm_pmu_disable_counter(struct kvm_vcpu *vcpu, u64 val) {}
+ static inline void kvm_pmu_enable_counter(struct kvm_vcpu *vcpu, u64 val) {}
+ static inline void kvm_pmu_overflow_set(struct kvm_vcpu *vcpu, u64 val) {}
+diff --git a/virt/kvm/arm/pmu.c b/virt/kvm/arm/pmu.c
+index 74e858c42ae156..1dbbc2c5155916 100644
+--- a/virt/kvm/arm/pmu.c
++++ b/virt/kvm/arm/pmu.c
+@@ -84,6 +84,23 @@ static void kvm_pmu_stop_counter(struct kvm_vcpu *vcpu, struct kvm_pmc *pmc)
+ 	}
+ }
+ 
++/**
++ * kvm_pmu_vcpu_reset - reset pmu state for cpu
++ * @vcpu: The vcpu pointer
++ *
++ */
++void kvm_pmu_vcpu_reset(struct kvm_vcpu *vcpu)
++{
++	int i;
++	struct kvm_pmu *pmu = &vcpu->arch.pmu;
++
++	for (i = 0; i < ARMV8_PMU_MAX_COUNTERS; i++) {
++		kvm_pmu_stop_counter(vcpu, &pmu->pmc[i]);
++		pmu->pmc[i].idx = i;
++		pmu->pmc[i].bitmask = 0xffffffffUL;
++	}
++}
++
+ u64 kvm_pmu_valid_counter_mask(struct kvm_vcpu *vcpu)
+ {
+ 	u64 val = vcpu_sys_reg(vcpu, PMCR_EL0) >> ARMV8_PMU_PMCR_N_SHIFT;

@@ -1,0 +1,83 @@
+From b8cfadfcefdc8c306ca2c0b1bdbdd4e01f0155e3 Mon Sep 17 00:00:00 2001
+From: Shannon Zhao <shannon.zhao@linaro.org>
+Date: Thu, 24 Mar 2016 16:01:16 +0000
+Subject: [PATCH] arm64: perf: Move PMU register related defines to
+ asm/perf_event.h
+
+To use the ARMv8 PMU related register defines from the KVM code, we move
+the relevant definitions to asm/perf_event.h header file and rename them
+with prefix ARMV8_PMU_. This allows us to get rid of kvm_perf_event.h.
+
+Signed-off-by: Anup Patel <anup.patel@linaro.org>
+Signed-off-by: Shannon Zhao <shannon.zhao@linaro.org>
+Acked-by: Marc Zyngier <marc.zyngier@arm.com>
+Reviewed-by: Andrew Jones <drjones@redhat.com>
+Signed-off-by: Marc Zyngier <marc.zyngier@arm.com>
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ arch/arm64/include/asm/kvm_host.h       |  1 -
+ arch/arm64/include/asm/kvm_hyp.h        |  1 -
+ arch/arm64/include/asm/kvm_perf_event.h | 68 -----------------------
+ arch/arm64/include/asm/perf_event.h     | 47 ++++++++++++++++
+ arch/arm64/kernel/perf_event.c          | 72 +++++++------------------
+ 5 files changed, 66 insertions(+), 123 deletions(-)
+ delete mode 100644 arch/arm64/include/asm/kvm_perf_event.h
+
+diff --git a/arch/arm64/include/asm/perf_event.h b/arch/arm64/include/asm/perf_event.h
+index 7bd3cdb533ea80..2065f46fa7407d 100644
+--- a/arch/arm64/include/asm/perf_event.h
++++ b/arch/arm64/include/asm/perf_event.h
+@@ -17,6 +17,53 @@
+ #ifndef __ASM_PERF_EVENT_H
+ #define __ASM_PERF_EVENT_H
+ 
++#define	ARMV8_PMU_MAX_COUNTERS	32
++#define	ARMV8_PMU_COUNTER_MASK	(ARMV8_PMU_MAX_COUNTERS - 1)
++
++/*
++ * Per-CPU PMCR: config reg
++ */
++#define ARMV8_PMU_PMCR_E	(1 << 0) /* Enable all counters */
++#define ARMV8_PMU_PMCR_P	(1 << 1) /* Reset all counters */
++#define ARMV8_PMU_PMCR_C	(1 << 2) /* Cycle counter reset */
++#define ARMV8_PMU_PMCR_D	(1 << 3) /* CCNT counts every 64th cpu cycle */
++#define ARMV8_PMU_PMCR_X	(1 << 4) /* Export to ETM */
++#define ARMV8_PMU_PMCR_DP	(1 << 5) /* Disable CCNT if non-invasive debug*/
++#define ARMV8_PMU_PMCR_LC	(1 << 6) /* Overflow on 64 bit cycle counter */
++#define	ARMV8_PMU_PMCR_N_SHIFT	11	 /* Number of counters supported */
++#define	ARMV8_PMU_PMCR_N_MASK	0x1f
++#define	ARMV8_PMU_PMCR_MASK	0x7f	 /* Mask for writable bits */
++
++/*
++ * PMOVSR: counters overflow flag status reg
++ */
++#define	ARMV8_PMU_OVSR_MASK		0xffffffff	/* Mask for writable bits */
++#define	ARMV8_PMU_OVERFLOWED_MASK	ARMV8_PMU_OVSR_MASK
++
++/*
++ * PMXEVTYPER: Event selection reg
++ */
++#define	ARMV8_PMU_EVTYPE_MASK	0xc800ffff	/* Mask for writable bits */
++#define	ARMV8_PMU_EVTYPE_EVENT	0xffff		/* Mask for EVENT bits */
++
++#define ARMV8_PMU_EVTYPE_EVENT_SW_INCR	0	/* Software increment event */
++
++/*
++ * Event filters for PMUv3
++ */
++#define	ARMV8_PMU_EXCLUDE_EL1	(1 << 31)
++#define	ARMV8_PMU_EXCLUDE_EL0	(1 << 30)
++#define	ARMV8_PMU_INCLUDE_EL2	(1 << 27)
++
++/*
++ * PMUSERENR: user enable reg
++ */
++#define ARMV8_PMU_USERENR_MASK	0xf		/* Mask for writable bits */
++#define ARMV8_PMU_USERENR_EN	(1 << 0) /* PMU regs can be accessed at EL0 */
++#define ARMV8_PMU_USERENR_SW	(1 << 1) /* PMSWINC can be written at EL0 */
++#define ARMV8_PMU_USERENR_CR	(1 << 2) /* Cycle counter can be read at EL0 */
++#define ARMV8_PMU_USERENR_ER	(1 << 3) /* Event counter can be read at EL0 */
++
+ #ifdef CONFIG_HW_PERF_EVENTS
+ struct pt_regs;
+ extern unsigned long perf_instruction_pointer(struct pt_regs *regs);

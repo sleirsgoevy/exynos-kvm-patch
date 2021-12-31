@@ -1,0 +1,119 @@
+From 04fe472615d0216ec0bdd66d9f3f1812b642ada6 Mon Sep 17 00:00:00 2001
+From: Shannon Zhao <shannon.zhao@linaro.org>
+Date: Fri, 11 Sep 2015 09:38:32 +0800
+Subject: [PATCH] arm64: KVM: Define PMU data structure for each vcpu
+
+Here we plan to support virtual PMU for guest by full software
+emulation, so define some basic structs and functions preparing for
+futher steps. Define struct kvm_pmc for performance monitor counter and
+struct kvm_pmu for performance monitor unit for each vcpu. According to
+ARMv8 spec, the PMU contains at most 32(ARMV8_PMU_MAX_COUNTERS)
+counters.
+
+Since this only supports ARM64 (or PMUv3), add a separate config symbol
+for it.
+
+Signed-off-by: Shannon Zhao <shannon.zhao@linaro.org>
+Acked-by: Marc Zyngier <marc.zyngier@arm.com>
+Reviewed-by: Andrew Jones <drjones@redhat.com>
+Signed-off-by: Marc Zyngier <marc.zyngier@arm.com>
+---
+ arch/arm64/include/asm/kvm_host.h |  2 ++
+ arch/arm64/kvm/Kconfig            |  7 ++++++
+ include/kvm/arm_pmu.h             | 42 +++++++++++++++++++++++++++++++
+ 3 files changed, 51 insertions(+)
+ create mode 100644 include/kvm/arm_pmu.h
+
+diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
+index 15851f52096b3a..fb57fdc6a433d3 100644
+--- a/arch/arm64/include/asm/kvm_host.h
++++ b/arch/arm64/include/asm/kvm_host.h
+@@ -38,6 +38,7 @@
+ 
+ #include <kvm/arm_vgic.h>
+ #include <kvm/arm_arch_timer.h>
++#include <kvm/arm_pmu.h>
+ 
+ #define KVM_MAX_VCPUS VGIC_V3_MAX_CPUS
+ 
+@@ -213,6 +214,7 @@ struct kvm_vcpu_arch {
+ 	/* VGIC state */
+ 	struct vgic_cpu vgic_cpu;
+ 	struct arch_timer_cpu timer_cpu;
++	struct kvm_pmu pmu;
+ 
+ 	/*
+ 	 * Anything that is not used directly from assembly code goes
+diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
+index a5272c07d1cbf3..de7450df762996 100644
+--- a/arch/arm64/kvm/Kconfig
++++ b/arch/arm64/kvm/Kconfig
+@@ -26,6 +26,7 @@
+ 	select KVM_ARM_HOST
+ 	select KVM_ARM_VGIC
+ 	select KVM_ARM_TIMER
++	select KVM_ARM_PMU if HW_PERF_EVENTS
+ 	---help---
+ 	  Support hosting virtualized guest machines.
+ 
+@@ -36,6 +37,12 @@
+ 	---help---
+ 	  Provides host support for ARM processors.
+ 
++config KVM_ARM_PMU
++	bool
++	---help---
++	  Adds support for a virtual Performance Monitoring Unit (PMU) in
++	  virtual machines.
++
+ config KVM_ARM_MAX_VCPUS
+ 	int "Number maximum supported virtual CPUs per VM"
+ 	depends on KVM_ARM_HOST
+diff --git a/include/kvm/arm_pmu.h b/include/kvm/arm_pmu.h
+new file mode 100644
+index 00000000000000..3c2fd568e0a811
+--- /dev/null
++++ b/include/kvm/arm_pmu.h
+@@ -0,0 +1,42 @@
++/*
++ * Copyright (C) 2015 Linaro Ltd.
++ * Author: Shannon Zhao <shannon.zhao@linaro.org>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#ifndef __ASM_ARM_KVM_PMU_H
++#define __ASM_ARM_KVM_PMU_H
++
++#ifdef CONFIG_KVM_ARM_PMU
++
++#include <linux/perf_event.h>
++#include <asm/perf_event.h>
++
++struct kvm_pmc {
++	u8 idx;	/* index into the pmu->pmc array */
++	struct perf_event *perf_event;
++	u64 bitmask;
++};
++
++struct kvm_pmu {
++	int irq_num;
++	struct kvm_pmc pmc[ARMV8_PMU_MAX_COUNTERS];
++	bool ready;
++};
++#else
++struct kvm_pmu {
++};
++#endif
++
++#endif

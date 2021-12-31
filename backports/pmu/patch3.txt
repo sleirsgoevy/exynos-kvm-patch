@@ -1,0 +1,90 @@
+From 3965c3ce751ab5a97618a2818eec4497576f4654 Mon Sep 17 00:00:00 2001
+From: Shannon Zhao <shannon.zhao@linaro.org>
+Date: Mon, 31 Aug 2015 17:20:22 +0800
+Subject: [PATCH] arm64: KVM: Add access handler for PMSELR register
+
+Since the reset value of PMSELR_EL0 is UNKNOWN, use reset_unknown for
+its reset handler. When reading PMSELR, return the PMSELR.SEL field to
+guest.
+
+Signed-off-by: Shannon Zhao <shannon.zhao@linaro.org>
+Reviewed-by: Andrew Jones <drjones@redhat.com>
+Signed-off-by: Marc Zyngier <marc.zyngier@arm.com>
+---
+ arch/arm64/include/asm/kvm_host.h |  1 +
+ arch/arm64/kvm/sys_regs.c         | 20 ++++++++++++++++++--
+ 2 files changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
+index 5def605b452597..57a2d8f76c2f62 100644
+--- a/arch/arm64/include/asm/kvm_asm.h
++++ b/arch/arm64/include/asm/kvm_asm.h
+@@ -58,15 +58,16 @@
+ 
+ /* Performance Monitor Registers */
+ #define PMCR_EL0	88	/* Control Register */
++#define PMSELR_EL0	89	/* Event Counter Selection Register */
+ 
+ /* 32bit specific registers. Keep them at the end of the range */
+-#define	DACR32_EL2	89	/* Domain Access Control Register */
+-#define	IFSR32_EL2	90	/* Instruction Fault Status Register */
+-#define	FPEXC32_EL2	91	/* Floating-Point Exception Control Register */
+-#define	DBGVCR32_EL2	92	/* Debug Vector Catch Register */
+-#define	TEECR32_EL1	93	/* ThumbEE Configuration Register */
+-#define	TEEHBR32_EL1	94	/* ThumbEE Handler Base Register */
+-#define	NR_SYS_REGS	95
++#define	DACR32_EL2	90	/* Domain Access Control Register */
++#define	IFSR32_EL2	91	/* Instruction Fault Status Register */
++#define	FPEXC32_EL2	92	/* Floating-Point Exception Control Register */
++#define	DBGVCR32_EL2	93	/* Debug Vector Catch Register */
++#define	TEECR32_EL1	94	/* ThumbEE Configuration Register */
++#define	TEEHBR32_EL1	95	/* ThumbEE Handler Base Register */
++#define	NR_SYS_REGS	96
+ 
+ /* 32bit mapping */
+ #define c0_MPIDR	(MPIDR_EL1 * 2)	/* MultiProcessor ID Register */
+diff --git a/arch/arm64/kvm/sys_regs.c b/arch/arm64/kvm/sys_regs.c
+index e88ae2d809a555..b05e20f8a3b963 100644
+--- a/arch/arm64/kvm/sys_regs.c
++++ b/arch/arm64/kvm/sys_regs.c
+@@ -477,6 +477,22 @@ static bool access_pmcr(struct kvm_vcpu *vcpu, const struct sys_reg_params *p,
+ 	return true;
+ }
+ 
++static bool access_pmselr(struct kvm_vcpu *vcpu, const struct sys_reg_params *p,
++			  const struct sys_reg_desc *r)
++{
++	if (!kvm_arm_pmu_v3_ready(vcpu))
++		return trap_raz_wi(vcpu, p, r);
++
++	if (p->is_write)
++		vcpu_sys_reg(vcpu, PMSELR_EL0) = *vcpu_reg(vcpu, p->Rt);
++	else
++		/* return PMSELR.SEL field */
++		*vcpu_reg(vcpu, p->Rt) = vcpu_sys_reg(vcpu, PMSELR_EL0)
++			    & ARMV8_PMU_COUNTER_MASK;
++
++	return true;
++}
++
+ /* Silly macro to expand the DBG{BCR,BVR,WVR,WCR}n_EL1 registers in one go */
+ #define DBG_BCR_BVR_WCR_WVR_EL1(n)					\
+ 	/* DBGBVRn_EL1 */						\
+@@ -676,7 +692,7 @@ static const struct sys_reg_desc sys_reg_descs[] = {
+ 	  trap_raz_wi },
+ 	/* PMSELR_EL0 */
+ 	{ Op0(0b11), Op1(0b011), CRn(0b1001), CRm(0b1100), Op2(0b101),
+-	  trap_raz_wi },
++	  access_pmselr, reset_unknown, PMSELR_EL0 },
+ 	/* PMCEID0_EL0 */
+ 	{ Op0(0b11), Op1(0b011), CRn(0b1001), CRm(0b1100), Op2(0b110),
+ 	  trap_raz_wi },
+@@ -927,7 +943,7 @@ static const struct sys_reg_desc cp15_regs[] = {
+ 	{ Op1( 0), CRn( 9), CRm(12), Op2( 1), trap_raz_wi },
+ 	{ Op1( 0), CRn( 9), CRm(12), Op2( 2), trap_raz_wi },
+ 	{ Op1( 0), CRn( 9), CRm(12), Op2( 3), trap_raz_wi },
+-	{ Op1( 0), CRn( 9), CRm(12), Op2( 5), trap_raz_wi },
++	{ Op1( 0), CRn( 9), CRm(12), Op2( 5), access_pmselr },
+ 	{ Op1( 0), CRn( 9), CRm(12), Op2( 6), trap_raz_wi },
+ 	{ Op1( 0), CRn( 9), CRm(12), Op2( 7), trap_raz_wi },
+ 	{ Op1( 0), CRn( 9), CRm(13), Op2( 0), trap_raz_wi },

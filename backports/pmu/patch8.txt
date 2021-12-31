@@ -1,0 +1,170 @@
+From f577f6c2a6a5ccabe98061f256a1e2ff468d5e93 Mon Sep 17 00:00:00 2001
+From: Shannon Zhao <shannon.zhao@linaro.org>
+Date: Mon, 11 Jan 2016 20:56:17 +0800
+Subject: [PATCH] arm64: KVM: Introduce per-vcpu kvm device controls
+
+In some cases it needs to get/set attributes specific to a vcpu and so
+needs something else than ONE_REG.
+
+Let's copy the KVM_DEVICE approach, and define the respective ioctls
+for the vcpu file descriptor.
+
+Signed-off-by: Shannon Zhao <shannon.zhao@linaro.org>
+Reviewed-by: Andrew Jones <drjones@redhat.com>
+Acked-by: Peter Maydell <peter.maydell@linaro.org>
+Signed-off-by: Marc Zyngier <marc.zyngier@arm.com>
+---
+ Documentation/virtual/kvm/api.txt          | 10 ++--
+ Documentation/virtual/kvm/devices/vcpu.txt |  8 ++++
+ arch/arm/kvm/arm.c                         | 55 ++++++++++++++++++++++
+ arch/arm64/kvm/reset.c                     |  1 +
+ include/uapi/linux/kvm.h                   |  1 +
+ 5 files changed, 71 insertions(+), 4 deletions(-)
+ create mode 100644 Documentation/virtual/kvm/devices/vcpu.txt
+
+diff --git a/Documentation/virtual/kvm/api.txt b/Documentation/virtual/kvm/api.txt
+index 9684f8dc6bb241..cb2ef0bcdcb52b 100644
+--- a/Documentation/virtual/kvm/api.txt
++++ b/Documentation/virtual/kvm/api.txt
+@@ -2507,8 +2507,9 @@ struct kvm_create_device {
+ 
+ 4.80 KVM_SET_DEVICE_ATTR/KVM_GET_DEVICE_ATTR
+ 
+-Capability: KVM_CAP_DEVICE_CTRL, KVM_CAP_VM_ATTRIBUTES for vm device
+-Type: device ioctl, vm ioctl
++Capability: KVM_CAP_DEVICE_CTRL, KVM_CAP_VM_ATTRIBUTES for vm device,
++  KVM_CAP_VCPU_ATTRIBUTES for vcpu device
++Type: device ioctl, vm ioctl, vcpu ioctl
+ Parameters: struct kvm_device_attr
+ Returns: 0 on success, -1 on error
+ Errors:
+@@ -2533,8 +2534,9 @@ struct kvm_device_attr {
+ 
+ 4.81 KVM_HAS_DEVICE_ATTR
+ 
+-Capability: KVM_CAP_DEVICE_CTRL, KVM_CAP_VM_ATTRIBUTES for vm device
+-Type: device ioctl, vm ioctl
++Capability: KVM_CAP_DEVICE_CTRL, KVM_CAP_VM_ATTRIBUTES for vm device,
++  KVM_CAP_VCPU_ATTRIBUTES for vcpu device
++Type: device ioctl, vm ioctl, vcpu ioctl
+ Parameters: struct kvm_device_attr
+ Returns: 0 on success, -1 on error
+ Errors:
+diff --git a/Documentation/virtual/kvm/devices/vcpu.txt b/Documentation/virtual/kvm/devices/vcpu.txt
+new file mode 100644
+index 00000000000000..3cc59c5e44ce14
+--- /dev/null
++++ b/Documentation/virtual/kvm/devices/vcpu.txt
+@@ -0,0 +1,8 @@
++Generic vcpu interface
++====================================
++
++The virtual cpu "device" also accepts the ioctls KVM_SET_DEVICE_ATTR,
++KVM_GET_DEVICE_ATTR, and KVM_HAS_DEVICE_ATTR. The interface uses the same struct
++kvm_device_attr as other devices, but targets VCPU-wide settings and controls.
++
++The groups and attributes per virtual cpu, if any, are architecture specific.
+diff --git a/arch/arm/kvm/arm.c b/arch/arm/kvm/arm.c
+index 9d133df2da5316..16623235629168 100644
+--- a/arch/arm/kvm/arm.c
++++ b/arch/arm/kvm/arm.c
+@@ -828,11 +828,51 @@ static int kvm_arch_vcpu_ioctl_vcpu_init(struct kvm_vcpu *vcpu,
+ 	return 0;
+ }
+ 
++static int kvm_arm_vcpu_set_attr(struct kvm_vcpu *vcpu,
++				 struct kvm_device_attr *attr)
++{
++	int ret = -ENXIO;
++
++	switch (attr->group) {
++	default:
++		break;
++	}
++
++	return ret;
++}
++
++static int kvm_arm_vcpu_get_attr(struct kvm_vcpu *vcpu,
++				 struct kvm_device_attr *attr)
++{
++	int ret = -ENXIO;
++
++	switch (attr->group) {
++	default:
++		break;
++	}
++
++	return ret;
++}
++
++static int kvm_arm_vcpu_has_attr(struct kvm_vcpu *vcpu,
++				 struct kvm_device_attr *attr)
++{
++	int ret = -ENXIO;
++
++	switch (attr->group) {
++	default:
++		break;
++	}
++
++	return ret;
++}
++
+ long kvm_arch_vcpu_ioctl(struct file *filp,
+ 			 unsigned int ioctl, unsigned long arg)
+ {
+ 	struct kvm_vcpu *vcpu = filp->private_data;
+ 	void __user *argp = (void __user *)arg;
++	struct kvm_device_attr attr;
+ 
+ 	switch (ioctl) {
+ 	case KVM_ARM_VCPU_INIT: {
+@@ -875,6 +915,21 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+ 			return -E2BIG;
+ 		return kvm_arm_copy_reg_indices(vcpu, user_list->reg);
+ 	}
++	case KVM_SET_DEVICE_ATTR: {
++		if (copy_from_user(&attr, argp, sizeof(attr)))
++			return -EFAULT;
++		return kvm_arm_vcpu_set_attr(vcpu, &attr);
++	}
++	case KVM_GET_DEVICE_ATTR: {
++		if (copy_from_user(&attr, argp, sizeof(attr)))
++			return -EFAULT;
++		return kvm_arm_vcpu_get_attr(vcpu, &attr);
++	}
++	case KVM_HAS_DEVICE_ATTR: {
++		if (copy_from_user(&attr, argp, sizeof(attr)))
++			return -EFAULT;
++		return kvm_arm_vcpu_has_attr(vcpu, &attr);
++	}
+ 	default:
+ 		return -EINVAL;
+ 	}
+diff --git a/arch/arm64/kvm/reset.c b/arch/arm64/kvm/reset.c
+index cf4f28a7a5144c..9677bf069bcc49 100644
+--- a/arch/arm64/kvm/reset.c
++++ b/arch/arm64/kvm/reset.c
+@@ -64,6 +64,9 @@
+ 	case KVM_CAP_ARM_EL1_32BIT:
+ 		r = cpu_has_32bit_el1();
+ 		break;
++	case KVM_CAP_VCPU_ATTRIBUTES:
++		r = 1;
++		break;
+ 	default:
+ 		r = 0;
+ 	}
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index dc16d3084d4a4f..50f44a22921253 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -761,6 +761,7 @@
+ #define KVM_CAP_PPC_FIXUP_HCALL 103
+ #define KVM_CAP_PPC_ENABLE_HCALL 104
+ #define KVM_CAP_CHECK_EXTENSION_VM 105
++#define KVM_CAP_VCPU_ATTRIBUTES 127
+ 
+ #ifdef KVM_CAP_IRQ_ROUTING
+ 

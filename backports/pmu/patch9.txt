@@ -1,0 +1,102 @@
+diff --git a/Documentation/virtual/kvm/api.txt b/Documentation/virtual/kvm/api.txt
+index 07e4cdf0240730..9684f8dc6bb241 100644
+--- a/Documentation/virtual/kvm/api.txt
++++ b/Documentation/virtual/kvm/api.txt
+@@ -2577,6 +2577,8 @@ Possible features:
+ 	  Depends on KVM_CAP_ARM_EL1_32BIT (arm64 only).
+ 	- KVM_ARM_VCPU_PSCI_0_2: Emulate PSCI v0.2 for the CPU.
+ 	  Depends on KVM_CAP_ARM_PSCI_0_2.
++	- KVM_ARM_VCPU_PMU_V3: Emulate PMUv3 for the CPU.
++	  Depends on KVM_CAP_ARM_PMU_V3.
+ 
+ 
+ 4.83 KVM_ARM_PREFERRED_TARGET
+diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
+index a819c6debce40f..b02ef0828f220d 100644
+--- a/arch/arm64/include/asm/kvm_host.h
++++ b/arch/arm64/include/asm/kvm_host.h
+@@ -42,7 +42,7 @@
+ 
+ #define KVM_MAX_VCPUS VGIC_V3_MAX_CPUS
+ 
+-#define KVM_VCPU_MAX_FEATURES 3
++#define KVM_VCPU_MAX_FEATURES 4
+ 
+ int __attribute_const__ kvm_target_cpu(void);
+ int kvm_reset_vcpu(struct kvm_vcpu *vcpu);
+diff --git a/arch/arm64/include/uapi/asm/kvm.h b/arch/arm64/include/uapi/asm/kvm.h
+index 2d4ca4bb0dd34a..6aedbe3144320c 100644
+--- a/arch/arm64/include/uapi/asm/kvm.h
++++ b/arch/arm64/include/uapi/asm/kvm.h
+@@ -94,6 +94,7 @@ struct kvm_regs {
+ #define KVM_ARM_VCPU_POWER_OFF		0 /* CPU is started in OFF state */
+ #define KVM_ARM_VCPU_EL1_32BIT		1 /* CPU running a 32bit VM */
+ #define KVM_ARM_VCPU_PSCI_0_2		2 /* CPU uses PSCI v0.2 */
++#define KVM_ARM_VCPU_PMU_V3		3 /* Support guest PMUv3 */
+ 
+ struct kvm_vcpu_init {
+ 	__u32 target;
+diff --git a/arch/arm64/kvm/reset.c b/arch/arm64/kvm/reset.c
+index dfbce781d284d6..cf4f28a7a5144c 100644
+--- a/arch/arm64/kvm/reset.c
++++ b/arch/arm64/kvm/reset.c
+@@ -64,6 +64,9 @@
+ 	case KVM_CAP_ARM_EL1_32BIT:
+ 		r = cpu_has_32bit_el1();
+ 		break;
++	case KVM_CAP_ARM_PMU_V3:
++		r = kvm_arm_support_pmu_v3();
++		break;
+ 	case KVM_CAP_VCPU_ATTRIBUTES:
+ 		r = 1;
+ 		break;
+diff --git a/include/kvm/arm_pmu.h b/include/kvm/arm_pmu.h
+index 9f87d717ef8423..ee62497d46f755 100644
+--- a/include/kvm/arm_pmu.h
++++ b/include/kvm/arm_pmu.h
+@@ -53,6 +53,7 @@ void kvm_pmu_software_increment(struct kvm_vcpu *vcpu, u64 val);
+ void kvm_pmu_handle_pmcr(struct kvm_vcpu *vcpu, u64 val);
+ void kvm_pmu_set_counter_event_type(struct kvm_vcpu *vcpu, u64 data,
+ 				    u64 select_idx);
++bool kvm_arm_support_pmu_v3(void);
+ #else
+ struct kvm_pmu {
+ };
+@@ -80,6 +81,7 @@ static inline void kvm_pmu_software_increment(struct kvm_vcpu *vcpu, u64 val) {}
+ static inline void kvm_pmu_handle_pmcr(struct kvm_vcpu *vcpu, u64 val) {}
+ static inline void kvm_pmu_set_counter_event_type(struct kvm_vcpu *vcpu,
+ 						  u64 data, u64 select_idx) {}
++static inline bool kvm_arm_support_pmu_v3(void) { return false; }
+ #endif
+ 
+ #endif
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 9da905157ceeeb..dc16d3084d4a4f 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -760,6 +760,7 @@
+ #define KVM_CAP_PPC_FIXUP_HCALL 103
+ #define KVM_CAP_PPC_ENABLE_HCALL 104
+ #define KVM_CAP_CHECK_EXTENSION_VM 105
++#define KVM_CAP_ARM_PMU_V3 126
+ #define KVM_CAP_VCPU_ATTRIBUTES 127
+ 
+ #ifdef KVM_CAP_IRQ_ROUTING
+diff --git a/virt/kvm/arm/pmu.c b/virt/kvm/arm/pmu.c
+index 9b83857da195e1..6e28f4f86cc677 100644
+--- a/virt/kvm/arm/pmu.c
++++ b/virt/kvm/arm/pmu.c
+@@ -405,3 +405,13 @@ void kvm_pmu_set_counter_event_type(struct kvm_vcpu *vcpu, u64 data,
+ 
+ 	pmc->perf_event = event;
+ }
++
++bool kvm_arm_support_pmu_v3(void)
++{
++	/*
++	 * Check if HW_PERF_EVENTS are supported by checking the number of
++	 * hardware performance counters. This could ensure the presence of
++	 * a physical PMU and CONFIG_PERF_EVENT is selected.
++	 */
++	return (perf_num_counters() > 0);
++}
